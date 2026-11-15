@@ -1,0 +1,27 @@
+# 密钥
+.env
+
+# 你的求职数据 —— 含 JD 全文、申请状态、备注，绝对不要提交
+*.db
+logs/
+reports/
+
+# 由 scripts/install-agents.sh 从 .template 生成，含本机绝对路径
+scripts/*.plist
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# 备份库 —— *.db 匹配不到它（文件名结尾是 -before-rescore）
+*.db.bak*
+
+# 个人档案（保留 profile.example.md 作为模板）
+profile.md
+
+# Claude 产出目录
+Claude outputs/

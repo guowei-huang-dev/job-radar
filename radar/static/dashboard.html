@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>岗位雷达</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>📡</text></svg>">
+<style>
+:root {
+  color-scheme: light;
+  --surface:      #fcfcfb;
+  --page:         #f9f9f7;
+  --ink:          #0b0b0b;
+  --ink-2:        #52514e;
+  --ink-muted:    #898781;
+  --grid:         #e1e0d9;
+  --rule:         #c3c2b7;
+  --border:       rgba(11,11,11,0.10);
+  --accent:       #2a78d6;
+  --accent-soft:  #cde2fb;
+  --good:         #0ca30c;
+  --warning:      #fab219;
+  --critical:     #d03b3b;
+  --hover:        rgba(11,11,11,0.035);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface:     #1a1a19;
+    --page:        #0d0d0d;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --ink-muted:   #898781;
+    --grid:        #2c2c2a;
+    --rule:        #383835;
+    --border:      rgba(255,255,255,0.10);
+    --accent:      #3987e5;
+    --accent-soft: #184f95;
+    --hover:       rgba(255,255,255,0.05);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19; --page: #0d0d0d; --ink: #fff; --ink-2: #c3c2b7;
+  --ink-muted: #898781; --grid: #2c2c2a; --rule: #383835;
+  --border: rgba(255,255,255,0.10); --accent: #3987e5; --accent-soft: #184f95;
+  --hover: rgba(255,255,255,0.05);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font: inherit; cursor: pointer; }
+
+/* ---------- 头部 ---------- */
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .01em; }
+.sub { color: var(--ink-muted); font-size: 12px; }
+header .spacer { flex: 1; }
+
+/* ---------- 主数字 ---------- */
+.hero {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 22px 24px; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 28px; flex-wrap: wrap;
+}
+.hero-num { font-size: 56px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
+.hero-lab { font-size: 15px; color: var(--ink-2); }
+.hero-lab b { color: var(--ink); font-weight: 600; }
+.hero-meta { font-size: 12px; color: var(--ink-muted); margin-top: 6px; }
+
+/* ---------- 统计卡片 ---------- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.tile {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px;
+}
+.tile .lab { font-size: 12px; color: var(--ink-muted); margin-bottom: 4px; }
+.tile .val { font-size: 24px; font-weight: 600; line-height: 1.1; }
+.tile .val small { font-size: 12px; font-weight: 400; color: var(--ink-muted); margin-left: 4px; }
+
+/* ---------- 标签页 ---------- */
+.tabs { display: flex; gap: 2px; margin-bottom: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--grid); }
+.tab {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 12px; color: var(--ink-2); font-size: 13px; border-radius: 6px 6px 0 0;
+}
+.tab:hover { background: var(--hover); }
+.tab[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.tab .n { color: var(--ink-muted); font-weight: 400; margin-left: 4px; font-size: 12px; }
+
+/* ---------- 筛选栏 ---------- */
+.filters { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+select, input[type=search], input[type=text], textarea {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px;
+}
+input[type=search] { min-width: 180px; }
+.filters .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.ghost {
+  background: var(--surface); border: 1px solid var(--border); color: var(--ink-2);
+  border-radius: 7px; padding: 6px 11px; font-size: 13px;
+}
+.ghost:hover { background: var(--hover); color: var(--ink); }
+
+/* ---------- 表格 ---------- */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 11px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--ink-muted); padding: 10px 12px;
+  border-bottom: 1px solid var(--grid); white-space: nowrap;
+}
+td { padding: 11px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tr.job { cursor: pointer; }
+tr.job:hover td { background: var(--hover); }
+tr.job.open td { background: var(--hover); }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* 分数条是 0–100 的真实比例，不截断坐标轴 —— 列要够宽才看得出差别 */
+.score { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 16px; width: 88px; }
+.bar { height: 3px; border-radius: 2px; background: var(--grid); margin-top: 6px; overflow: hidden; width: 64px; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.t-title { font-weight: 500; }
+.t-co { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+.t-loc { color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+.date { color: var(--ink-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.chip {
+  display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap;
+}
+.chip.de-req  { color: #8a2222; border-color: var(--critical); }
+.chip.de-unc  { color: #8a5a00; border-color: var(--warning); }
+:root[data-theme="dark"] .chip.de-req, :root:not([data-theme="light"]) .chip.de-req { color: #e66767; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.de-unc { color: #fab219; } }
+
+.flagtag { color: var(--warning); }
+.st { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.st i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+.st-new i        { background: var(--ink-muted); }
+.st-shortlisted i{ background: var(--warning); }
+.st-applied i    { background: var(--accent); }
+.st-interview i  { background: var(--good); }
+.st-rejected i   { background: var(--critical); }
+.st-dismissed i  { background: var(--grid); }
+
+/* ---------- 展开详情 ---------- */
+tr.detail td { background: var(--page); padding: 0; }
+.det { padding: 16px 18px 18px; border-left: 3px solid var(--accent); }
+.det h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-muted); font-weight: 500; }
+.det p.one { margin: 0 0 14px; font-size: 14px; }
+.det ul { margin: 0 0 14px; padding-left: 18px; }
+.det li { margin-bottom: 3px; }
+.det .gap li { color: var(--ink-2); }
+.flagbox { border-left: 2px solid var(--critical); padding: 6px 10px; margin: 0 0 14px; font-size: 13px; }
+.evi { font-size: 12px; color: var(--ink-muted); font-style: italic; margin: 0 0 14px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.actions .sep { flex: 1; }
+.act {
+  background: var(--surface); border: 1px solid var(--border); color: var(--ink-2);
+  border-radius: 7px; padding: 5px 11px; font-size: 12.5px;
+}
+.act:hover { background: var(--hover); color: var(--ink); }
+.act[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); font-weight: 600; }
+.note { width: 100%; min-height: 54px; margin-top: 12px; resize: vertical; }
+
+.empty { padding: 48px 20px; text-align: center; color: var(--ink-muted); }
+.toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--page); padding: 9px 16px; border-radius: 8px;
+  font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+}
+.toast.on { opacity: 1; }
+
+details.kw { margin-top: 18px; }
+details.kw summary { cursor: pointer; color: var(--ink-2); font-size: 13px; padding: 6px 0; }
+details.kw .body { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 8px; }
+.kwlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.kwrow { display: flex; gap: 6px; }
+.kwrow input { flex: 1; }
+
+@media (max-width: 680px) {
+  .hero-num { font-size: 44px; }
+  th.hide, td.hide { display: none; }
+  .st .date { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>岗位雷达</h1>
+  <span class="sub" id="updated"></span>
+  <span class="spacer"></span>
+  <button class="ghost" id="theme">切换主题</button>
+  <button class="ghost" id="refresh">刷新</button>
+</header>
+
+<section class="hero">
+  <div class="hero-num" id="heroNum">–</div>
+  <div>
+    <div class="hero-lab" id="heroLab">个岗位<b>等你处理</b></div>
+    <div class="hero-meta" id="heroMeta"></div>
+  </div>
+</section>
+
+<section class="tiles" id="tiles"></section>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="filters">
+  <select id="fDirection"><option value="all">全部方向</option></select>
+  <select id="fGerman"><option value="all">全部德语状态</option></select>
+  <select id="fReason" hidden><option value="all">全部丢弃原因</option></select>
+  <select id="fStatus" hidden><option value="all">全部状态</option></select>
+  <select id="fSource"><option value="all">全部来源</option></select>
+  <input type="search" id="fQ" placeholder="搜索岗位或公司">
+  <div class="right">
+    <select id="fSort">
+      <option value="score">按分数</option>
+      <option value="date">按发现日期</option>
+      <option value="company">按公司</option>
+      <option value="status">按状态</option>
+    </select>
+  </div>
+</div>
+
+<div class="card">
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>分数</th><th>岗位</th><th class="hide">地点</th>
+        <th class="hide">方向</th><th>德语</th><th class="hide">发现</th><th>状态</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="empty" id="empty" hidden></div>
+</div>
+
+<details class="kw">
+  <summary>搜索关键词设置</summary>
+  <div class="body">
+    <div class="kwlist" id="kwlist"></div>
+    <button class="ghost" id="kwAdd">+ 加一个</button>
+    <button class="ghost" id="kwSave">保存到 config.yaml</button>
+    <div class="sub" style="margin-top:8px">
+      保存后下次运行 <code>python -m radar.cli run</code> 才生效，不会立刻重新抓取。
+    </div>
+  </div>
+</details>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const DIRECTION = {ai_llm:"AI / LLM", tooling_automation:"工具 / 自动化", efficiency:"效率优化",
+  data_mlops:"数据 / MLOps", general_swe:"软件工程", other:"其他"};
+const GERMAN = {required:"要求德语", optional:"德语加分", unclear:"德语待确认",
+  none:"未提德语", unknown:"未判定"};
+const STATUS = {new:"待看", shortlisted:"想投", applied:"已投", interview:"面试中",
+  rejected:"被拒", dismissed:"忽略"};
+const TABS = [["open","待处理"],["shortlisted","想投"],["applied","已投"],
+  ["interview","面试中"],["rejected","被拒"],["dismissed","忽略"],["all","全部"]];
+
+let state = {status:"open", direction:"all", german:"all", source:"all", reason:"all",
+             appStatus:"all", q:"", sort:"score", open:null, stats:null};
+
+// 「被过滤」页的岗位大多在标题阶段就砍了，没有方向和德语判定 ——
+// 那两个筛选器在这一页永远匹配不到东西，所以换成「丢弃原因」。
+function syncFilterVisibility() {
+  const flagged = state.status === "flagged";
+  // 规则标记页现在也有分数和方向了，所以这两个筛选器保留
+  $("#fDirection").hidden = false;
+  $("#fGerman").hidden = false;
+  $("#fReason").hidden = !flagged;
+  $("#fStatus").hidden = !(flagged || state.status === "all");
+}
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1800);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || r.statusText); }
+  return r.json();
+}
+
+/* ---------------- 统计 ---------------- */
+async function loadStats() {
+  const s = await api("/api/stats");
+  state.stats = s;
+
+  $("#heroNum").textContent = s.actionable;
+  $("#heroLab").innerHTML = s.actionable === 0
+    ? "暂时<b>没有待处理的岗位</b>"
+    : "个岗位<b>等你处理</b>";
+  $("#heroMeta").textContent =
+    `今天新增 ${s.new_today} 个 · 分数线 ${s.min_score} · `
+    + `另有 ${s.pending} 条待打分，${s.german_dropped} 条因德语要求被淘汰`;
+
+  const tiles = [
+    ["想投", s.shortlisted, ""],
+    ["已投递", s.applied_total, ""],
+    ["面试中", s.interview, ""],
+    ["回复率", s.reply_rate === null ? "–" : s.reply_rate + "%",
+      s.applied_total ? `${s.interview}/${s.applied_total}` : "还没投过"],
+  ];
+  $("#tiles").innerHTML = tiles.map(([lab, val, sub]) =>
+    `<div class="tile"><div class="lab">${lab}</div>
+     <div class="val">${val}${sub ? `<small>${esc(sub)}</small>` : ""}</div></div>`).join("");
+
+  // 计数直接用后端算好的 tabs —— 和列表查询同一套条件，不再自己拼
+  const t = s.tabs || {};
+  $("#tabs").innerHTML = TABS.concat([["flagged", "规则标记"]]).map(([k, lab]) =>
+    `<button class="tab" role="tab" data-k="${k}" aria-selected="${state.status === k}">
+      ${lab}<span class="n">${t[k] ?? 0}</span></button>`).join("");
+
+  for (const [key, sel] of [["direction", "#fDirection"], ["german", "#fGerman"],
+                            ["source", "#fSource"], ["reason", "#fReason"]]) {
+    const el = $(sel), keep = el.value;
+    const label = key === "direction" ? DIRECTION : key === "german" ? GERMAN : null;
+    el.innerHTML = el.options[0].outerHTML + (s.facets[key] || []).map(v =>
+      `<option value="${esc(v)}">${esc(label ? (label[v] || v) : v)}</option>`).join("");
+    el.value = keep || "all";
+  }
+  // 状态筛选器的选项是固定的六种，不从库里取
+  if ($("#fStatus").options.length === 1) {
+    $("#fStatus").innerHTML = $("#fStatus").options[0].outerHTML
+      + Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  }
+  syncFilterVisibility();
+  $("#updated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"});
+}
+
+/* ---------------- 列表 ---------------- */
+function statusCell(j) {
+  return `<span class="st st-${j.status}"><i></i>${STATUS[j.status] || j.status}${
+    j.applied_at && j.status === "applied" ? ` <span class="date">${j.applied_at}</span>` : ""}</span>`;
+}
+
+function germanCell(j) {
+  const cls = j.german === "required" ? "de-req" : j.german === "unclear" ? "de-unc" : "";
+  return `<span class="chip ${cls}">${GERMAN[j.german] || j.german}</span>`;
+}
+
+function rowHTML(j) {
+  return `<tr class="job" data-src="${esc(j.source)}" data-id="${esc(j.id)}">
+    <td class="score">${j.score || "–"}
+      ${j.score ? `<div class="bar"><i style="width:${Math.max(3, j.score)}%"></i></div>` : ""}</td>
+    <td><div class="t-title">${esc(j.title)}</div>
+      <div class="t-co">${esc(j.company)}${j.drop_reason
+        ? ` · <span class="flagtag">⚑ ${esc(j.drop_reason)}</span>` : ""}</div></td>
+    <td class="t-loc hide">${esc(j.location)}</td>
+    <td class="hide">${j.direction
+      ? `<span class="chip">${DIRECTION[j.direction] || j.direction}</span>`
+      : '<span class="t-loc">—</span>'}</td>
+    <td>${germanCell(j)}</td>
+    <td class="date hide">${esc(j.first_seen)}</td>
+    <td>${statusCell(j)}</td>
+  </tr>`;
+}
+
+function detailHTML(j) {
+  const list = (arr, cls = "") => arr.length
+    ? `<ul class="${cls}">${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  const btns = Object.entries(STATUS).map(([k, lab]) =>
+    `<button class="act" data-status="${k}" aria-pressed="${j.status === k}">${lab}</button>`).join("");
+
+  return `<tr class="detail"><td colspan="7"><div class="det">
+    ${j.one_line ? `<p class="one">${esc(j.one_line)}</p>` : ""}
+    ${j.flags?.length ? `<div class="flagbox">⚠ ${j.flags.map(esc).join("；")}</div>` : ""}
+    ${j.reasons?.length ? `<h4>匹配</h4>${list(j.reasons)}` : ""}
+    ${j.gaps?.length ? `<h4>欠缺</h4>${list(j.gaps, "gap")}` : ""}
+    ${j.german_evidence?.length
+      ? `<h4>德语判定依据</h4><p class="evi">${j.german_evidence.map(esc).join(" / ")}</p>` : ""}
+    ${j.drop_reason ? `<div class="sub" style="margin-bottom:6px">
+      ⚑ 规则标记：${esc(j.drop_reason)} —— 只是提示，分数已照常算过了</div>` : ""}
+    <div class="sub">${esc(j.location)} · ${esc(j.hours)} · 来源 ${esc(j.source)}
+      · 发现于 ${esc(j.first_seen)}</div>
+    <div class="actions">
+      ${btns}
+      <span class="sep"></span>
+      <a href="${esc(j.url)}" target="_blank" rel="noopener">打开原岗位 ↗</a>
+    </div>
+    <textarea class="note" placeholder="备注（失焦自动保存）">${esc(j.note)}</textarea>
+  </div></td></tr>`;
+}
+
+let jobs = [];
+async function loadJobs() {
+  // 规则标记页：被规则点过名的岗位，不限阶段、不卡分数线 —— 就是要看低分的长什么样
+  // 想投/已投/面试/被拒/忽略：不限阶段 —— 从被过滤堆里捞回来的岗位也要出现在这里
+  // 待处理/全部：只看已打分的
+  // 规则标记页：被规则点过名的岗位，不限阶段、不卡分数线 —— 就是要看低分的长什么样
+  const flagged = state.status === "flagged";
+  const rescuable = ["shortlisted", "applied", "interview", "rejected", "dismissed"];
+  const p = new URLSearchParams({
+    status: flagged ? state.appStatus
+          : state.status === "all" ? (state.appStatus === "all" ? "all" : state.appStatus)
+          : state.status,
+    stage: flagged ? "any" : rescuable.includes(state.status) ? "any" : "scored",
+    direction: state.direction, german: state.german, source: state.source,
+    reason: state.reason, q: state.q, sort: state.sort,
+  });
+  if (flagged) { p.set("flagged", "true"); p.set("min_score_override", "0"); }
+  const data = await api("/api/jobs?" + p);
+  jobs = data.jobs;
+
+  const tb = $("#rows");
+  tb.innerHTML = jobs.map(j => {
+    const key = j.source + "|" + j.id;
+    return rowHTML(j) + (state.open === key ? detailHTML(j) : "");
+  }).join("");
+
+  const none = jobs.length === 0;
+  $("#empty").hidden = !none;
+  if (none) $("#empty").textContent = state.status === "open"
+    ? "没有待处理的岗位 —— 要么今天还没抓，要么你都处理完了。"
+    : "这个分类下没有岗位。";
+}
+
+/* ---------------- 交互 ---------------- */
+$("#rows").addEventListener("click", async (e) => {
+  const act = e.target.closest(".act");
+  if (act) {
+    const tr = act.closest("tr").previousElementSibling;
+    const [src, id] = [tr.dataset.src, tr.dataset.id];
+    try {
+      await api(`/api/jobs/${encodeURIComponent(src)}/${encodeURIComponent(id)}/status`,
+        {method: "POST", headers: {"Content-Type": "application/json"},
+         body: JSON.stringify({status: act.dataset.status})});
+      toast("已标记为「" + STATUS[act.dataset.status] + "」");
+      state.open = null;
+      await loadStats(); await loadJobs();
+    } catch (err) { toast("保存失败：" + err.message); }
+    return;
+  }
+  const row = e.target.closest("tr.job");
+  if (!row) return;
+  const key = row.dataset.src + "|" + row.dataset.id;
+  state.open = state.open === key ? null : key;
+  await loadJobs();
+});
+
+$("#rows").addEventListener("focusout", async (e) => {
+  if (!e.target.classList.contains("note")) return;
+  const tr = e.target.closest("tr").previousElementSibling;
+  try {
+    await api(`/api/jobs/${encodeURIComponent(tr.dataset.src)}/${encodeURIComponent(tr.dataset.id)}/note`,
+      {method: "POST", headers: {"Content-Type": "application/json"},
+       body: JSON.stringify({note: e.target.value})});
+    toast("备注已保存");
+  } catch (err) { toast("备注保存失败：" + err.message); }
+});
+
+$("#tabs").addEventListener("click", async (e) => {
+  const t = e.target.closest(".tab"); if (!t) return;
+  state.status = t.dataset.k; state.open = null;
+  // 换标签页时把只对另一页有意义的筛选条件清掉，避免出现"明明有岗位却一条不显示"
+  state.direction = state.german = state.reason = state.appStatus = "all";
+  for (const s of ["#fDirection", "#fGerman", "#fReason", "#fStatus"]) $(s).value = "all";
+  syncFilterVisibility();
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
+  await loadJobs();
+});
+
+for (const [sel, key] of [["#fDirection", "direction"], ["#fGerman", "german"],
+                          ["#fSource", "source"], ["#fReason", "reason"],
+                          ["#fStatus", "appStatus"], ["#fSort", "sort"]]) {
+  $(sel).addEventListener("change", async e => {
+    state[key] = e.target.value; state.open = null; await loadJobs();
+  });
+}
+let qt; $("#fQ").addEventListener("input", e => {
+  clearTimeout(qt);
+  qt = setTimeout(async () => { state.q = e.target.value; state.open = null; await loadJobs(); }, 250);
+});
+
+$("#refresh").addEventListener("click", async () => { await loadStats(); await loadJobs(); toast("已刷新"); });
+$("#theme").addEventListener("click", () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.getAttribute("data-theme") || (dark ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+});
+
+/* ---------------- 关键词 ---------------- */
+function kwRow(v = "") {
+  const d = document.createElement("div");
+  d.className = "kwrow";
+  d.innerHTML = `<input type="text" value="${esc(v)}"><button class="ghost" data-del>×</button>`;
+  d.querySelector("[data-del]").onclick = () => d.remove();
+  return d;
+}
+async function loadKeywords() {
+  const {keywords} = await api("/api/keywords");
+  const box = $("#kwlist"); box.innerHTML = "";
+  keywords.forEach(k => box.appendChild(kwRow(k)));
+}
+$("#kwAdd").onclick = () => $("#kwlist").appendChild(kwRow());
+$("#kwSave").onclick = async () => {
+  const kws = [...document.querySelectorAll("#kwlist input")].map(i => i.value);
+  try {
+    const r = await api("/api/keywords", {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify({keywords: kws})});
+    toast(`已保存 ${r.keywords.length} 个关键词`);
+  } catch (e) { toast("保存失败：" + e.message); }
+};
+
+/* ---------------- 启动 ---------------- */
+(async () => {
+  try { await loadStats(); await loadJobs(); await loadKeywords(); }
+  catch (e) { $("#empty").hidden = false; $("#empty").textContent = "加载失败：" + e.message; }
+})();
+</script>
+</body>
+</html>

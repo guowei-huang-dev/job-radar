@@ -1,0 +1,108 @@
+# ============================================================
+# job-radar 配置
+# 改这里就能调整搜索范围和过滤严格程度，不用动代码
+# ============================================================
+
+sources:
+  linkedin:
+    enabled: true
+    # 每组 keywords 会单独搜一次。关键词越少越准，别堆太多。
+    searches:
+      - keywords: "Werkstudent AI"
+      - keywords: "Working Student AI"
+      - keywords: "Working Student Machine Learning"
+      - keywords: "Werkstudent Python"
+      - keywords: "Working Student Data Engineer"
+      - keywords: "Working Student Automation"
+      - keywords: "Werkstudent Softwareentwicklung"
+      - keywords: "Working Student Software Engineer"
+      - keywords: "Intern LLM"
+    location: "Berlin, Germany"
+    # 时间窗：r + 秒数，想要几天就填几天的秒数
+    #   r86400  = 过去 1 天
+    #   r259200 = 过去 3 天
+    #   r604800 = 过去 7 天（样本量最大，第一次跑或想看岗位密度时用）
+    time_filter: "r259200"
+    max_pages: 4            # 每组关键词最多翻几页（每页 25 条）
+    request_delay: [3, 6]   # 每次请求之间随机 sleep 秒数区间，别调低
+    max_retries: 3
+
+  arbeitnow:
+    # 完全合规的公开 JSON API，作为 LinkedIn 的补充源
+    enabled: true
+    pages: 3
+    keywords: ["werkstudent", "working student", "intern", "praktikum"]
+
+filters:
+  # 标题必须命中其一（大小写不敏感）。留空表示不限制。
+  title_must_include:
+    - werkstudent
+    - working student
+    - student assistant
+    - praktikum
+    - praktikant
+    - intern
+    - internship
+    - entry level
+    - junior
+
+  # 标题命中任一即丢弃
+  title_exclude:
+    - sales
+    - vertrieb
+    - marketing
+    - recruit
+    - human resources
+    - hr
+    - talent acquisition
+    - accounting
+    - buchhaltung
+    - steuer
+    - legal
+    - customer support
+    - kundenservice
+    - social media
+    - content creator
+    - grafik
+    - pflege
+
+  # 地点必须命中其一。留空表示不限制。
+  location_must_include:
+    - berlin
+    - remote
+    - deutschland
+    - germany
+
+  # true  = 规则只打标签，所有岗位一律抓 JD 并打分 —— 不会漏，但要多花时间和 token
+  # false = 规则命中直接丢弃，不抓 JD 不打分 —— 省钱省时间
+  score_everything: true
+
+  german:
+    # 下面这条只在 score_everything: false 时生效
+    # required  → 明确要求德语，直接丢弃
+    # optional  → 德语只是加分项，保留
+    # unclear   → 提到德语但判断不清，保留并交给模型复核
+    drop_when_required: true
+    # 整篇 JD 是德语写的时候怎么处理：keep / flag / drop
+    # flag = 保留但在日报里标注（推荐，德语 JD 不等于要求德语）
+    german_jd_action: flag
+
+scoring:
+  # deepseek-flash  = DeepSeek-V4.1-Flash，便宜、够用，默认选它
+  # deepseek-v4-pro = 更强但贵约 4 倍，觉得打分不够准再换
+  model: "deepseek-flash"
+  # DeepSeek 官方对"数据分析"类任务推荐 1.0；想让分数更稳定可以调到 0.3
+  temperature: 1.0
+  # 低于这个分数不进日报
+  min_score_to_report: 55
+  # 单次运行最多打分多少个岗位（成本闸门，超出的留到下次跑）
+  # score_everything: true 时要放大，否则每天都有一堆岗位积压着打不完
+  max_jobs_per_run: 400
+
+report:
+  title: "每日岗位雷达"
+  timezone: "Europe/Berlin"
+  # 日报里最多列多少条
+  max_items: 25
+  # 即使一条都没有也发邮件（false = 无结果就不发）
+  send_when_empty: false

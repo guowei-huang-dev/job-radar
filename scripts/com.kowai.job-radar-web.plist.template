@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kowai.job-radar-web</string>
+
+  <!-- 面板服务，常驻后台 -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{PROJECT}}/.venv/bin/python</string>
+    <string>-m</string>
+    <string>radar.web</string>
+    <string>--reload</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{PROJECT}}</string>
+
+  <!-- 登录即启动 -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 万一挂了自动拉起来 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>{{PROJECT}}/logs/web.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{PROJECT}}/logs/web.err.log</string>
+</dict>
+</plist>

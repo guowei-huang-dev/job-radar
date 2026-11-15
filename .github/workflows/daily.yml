@@ -1,0 +1,42 @@
+name: daily job radar
+
+on:
+  schedule:
+    # 05:00 UTC = 柏林夏令时 07:00 / 冬令时 06:00，工作日
+    - cron: "0 5 * * 1-5"
+  workflow_dispatch:          # 也可以在 Actions 页面手动点一次
+
+permissions:
+  contents: write             # 需要把 jobs.db 和 reports/ 写回仓库
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run radar
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python -m radar.cli run
+
+      - name: Persist database and reports
+        run: |
+          git config user.name  "job-radar"
+          git config user.email "actions@github.com"
+          git add jobs.db reports/ || true
+          git diff --staged --quiet || git commit -m "radar: $(date -u +%Y-%m-%d)"
+          git push

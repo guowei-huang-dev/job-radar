@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kowai.job-radar</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{PROJECT}}/scripts/run-daily.sh</string>
+  </array>
+
+  <!-- 每天 07:00 本地时间。睡眠错过的话，Mac 唤醒后会补跑一次 -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>7</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <!-- 加载时不立刻执行，只等定时 -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>WorkingDirectory</key>
+  <string>{{PROJECT}}</string>
+
+  <key>StandardOutPath</key>
+  <string>{{PROJECT}}/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{PROJECT}}/logs/launchd.err.log</string>
+</dict>
+</plist>
