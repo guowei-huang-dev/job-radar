@@ -213,7 +213,7 @@ cd ~/auto_job/job-radar
 
 ---
 
-## 德语门槛是怎么判的
+## 语言门槛是怎么判的
 
 这是整个过滤里最需要准的一环，所以没有用"整篇 JD 搜关键词"的糙办法
 （那样 `Deutschland`、`German office` 都会误伤）。做法是：
@@ -257,9 +257,8 @@ DeepSeek 拿到 `profile.md` + JD 全文，返回结构化结果（分数 / 方�
 | -------------------------- | --- |
 | AI / LLM 应用开发、内部工具与自动化     | 100 |
 | 数据工程 / MLOps、通用软件工程        | 85  |
-| 其他（含供应链、SAP、PM 这类旧背景对口的岗位） | 40  |
+| 其他（含旧背景对口的岗位） | 40  |
 
-最后一行是刻意的：你在主动转向 AI 方向，不希望旧背景把这类岗位顶上来。
 想改回去就改 `radar/score.py` 里的 `SYSTEM` 提示词，以及 `profile.md`。
 
 分数线在 `config.yaml` 的 `min_score_to_report`，默认 55。
@@ -384,53 +383,29 @@ Gmail 的 `SMTP_PASS` 要用**应用专用密码**（开两步验证后生成的
 
 ---
 
-## 给别人用要改什么
+## 如何个性化调整筛选条件
 
 这套系统的**筛选逻辑是通用的，配置是为柏林 + 无德语 + Werkstudent 定制的**。
-换个人用，按顺序改这四处：
+按顺序改这四处：
 
 | 文件 | 改什么 |
 |---|---|
 | `profile.md` | 整份换掉。复制 `profile.example.md` 照着填，这是打分的唯一基准 |
-| `config.yaml` → `location` | 换成他的城市，如 `"Munich, Germany"` / `"Amsterdam, Netherlands"` |
-| `config.yaml` → `searches` | 换成他方向的关键词，德语区留德语词，其它地区全用英语 |
-| `radar/score.py` → `SYSTEM` | 各方向的分数上限是照着某个人的转型路径写的，得按他的情况重写 |
+| `config.yaml` → `location` | 换成新的城市，如 `"Munich, Germany"` / `"Amsterdam, Netherlands"` |
+| `config.yaml` → `searches` | 换成新方向的关键词，德语区留德语词，其它地区全用英语 |
+| `radar/score.py` → `SYSTEM` | 各方向的分数上限是照着某个人的转型路径写的，得按自己的情况重写 |
 
-**德语门槛（`radar/german.py`）是否保留**，看他的情况：
+**德语门槛（`radar/german.py`）是否保留**：
 
 - 在德国求职但不会德语 → 保留，这是整套系统最值钱的部分
 - 德语流利 → 把 `config.yaml` 里 `filters.german.drop_when_required` 改成 `false`，
   判定结果只标注不丢弃
 - 不在德语区 → 整段可以不管，JD 里不会提德语，判定结果永远是 `none`，不影响任何东西
 
-他还需要自己的 **DeepSeek API key**（各自计费，别共用）和自己的 **SMTP 应用专用密码**。
+还需要添加自己的 **DeepSeek API key**（各自计费，别共用）和自己的 **SMTP 应用专用密码**。
 
 装好之后建议先 `python -m radar.cli run --dry-run --max-details 20` 空跑一次，
 看看过滤效果对不对，再开定时任务。
-
----
-
-## 推到 GitHub
-
-`.gitignore` 已经排除了不该提交的东西：`.env`（密钥）、`*.db`（你的求职数据，含 JD
-全文和申请备注）、`logs/`、`reports/`，以及由模板生成、含本机绝对路径的 `scripts/*.plist`。
-
-```bash
-cd ~/auto_job/job-radar
-git init
-git add .
-git status          # 提交前务必扫一眼这个清单
-git commit -m "job-radar: 柏林 Werkstudent 岗位筛选与打分"
-git remote add origin git@github.com:<你的用户名>/job-radar.git
-git push -u origin main
-```
-
-**建议设成私有仓库**。`profile.md` 是你的求职画像，`config.yaml` 里是你的搜索策略，
-虽然不含密钥，但都是个人信息。想公开当作品集的话，先把 `profile.md` 换成一份示例。
-
-`git status` 里如果看到 `.env`、`jobs.db`、`logs/`、`reports/` 中的任何一个，
-**先别提交**，说明 `.gitignore` 没生效（多半是这些文件在加 `.gitignore` 之前
-就被 `git add` 过了）。
 
 ---
 
