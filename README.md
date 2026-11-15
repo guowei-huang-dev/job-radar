@@ -1,210 +1,270 @@
 # job-radar
 
-每天早上 7 点自动抓 LinkedIn 岗位 → 规则过滤 → DeepSeek 对照你的画像打分 →
-发邮件日报 + 写进本地面板。**只筛选，不自动投递。**
+Pulls job postings every morning at 07:00 → rule-based filtering → scores each one against your profile with an LLM → emails a digest and writes to a local dashboard. **Screens jobs only — it never applies on your behalf.**
 
 ```
-LinkedIn guest 接口 ┐
-                    ├→ SQLite 去重 → 标题/地点过滤 → 德语门槛 → DeepSeek 打分 → 邮件 + 面板
-Arbeitnow 公开 API  ┘
+LinkedIn guest endpoint ┐
+                        ├→ SQLite dedupe → title/location filter → language gate → LLM scoring → email + dashboard
+Arbeitnow public API    ┘
 ```
+
+![Job Radar dashboard](docs/screenshot.png)
+
+*The generated analysis text is in Chinese in this screenshot — the output language is set in the `SYSTEM` prompt in `radar/score.py`. See [Changing the output language](#changing-the-output-language).*
+
+Running since September 2026: **7,100+ postings from 2,400+ companies** processed across two sources, narrowed to roughly 260 qualified leads. Every rejected posting keeps the reason it was dropped, so the filter itself can be audited.
+
+Built for a specific situation — Berlin, Werkstudent-level, no German — but the filtering logic is generic. See [Adapting it to your own search](#adapting-it-to-your-own-search).
 
 ---
 
-## 想改什么，去改哪个文件
-
-| 我想改…                   | 改这里                                                    | 改完要做什么                              |
-| ---------------------- | ------------------------------------------------------ | ----------------------------------- |
-| **匹配口味**（求职方向、技能、硬性排除） | `profile.md`                                           | 下次抓取自动生效                            |
-| **搜索关键词**              | 面板底部「搜索关键词设置」，或 `config.yaml` 的 `searches`             | 下次抓取生效，不会立刻重抓                       |
-| **搜索地点、时间范围、翻几页**      | `config.yaml` → `sources.linkedin`                     | 同上                                  |
-| **分数线**（低于多少不进日报）      | `config.yaml` → `scoring.min_score_to_report`          | 同上                                  |
-| **用哪个模型、贵不贵**          | `config.yaml` → `scoring.model`                        | 同上                                  |
-| **德语门槛严格程度**           | `config.yaml` → `filters.german`；词表在 `radar/german.py` | 改词表后跑 `python tests/test_german.py` |
-| **打分规则**（各方向的分数上限）     | `radar/score.py` 里的 `SYSTEM` 提示词                       | 下次抓取生效                              |
-| **每天几点跑**              | `scripts/com.kowai.job-radar.plist` 的 `Hour`/`Minute`  | 要重新加载，见「定时」章节                       |
-| **API key、邮箱密码**       | `.env`                                                 | 立刻生效                                |
-| **面板长相**               | `radar/static/dashboard.html`                          | 刷新浏览器即可                             |
-
-日常只会动前两行。其余基本一次配好不用管。
-
-### 改完想立刻生效，不想等到明早 7 点
-
-`config.yaml` 和 `profile.md` 都是**抓取任务启动时才读**的，改完文件本身不会触发任何事。
-想马上看到效果就手动跑一次：
-
-```bash
-launchctl kickstart -p gui/$(id -u)/com.kowai.job-radar
-tail -f ~/auto_job/job-radar/logs/daily.log
-```
-
-跑完刷新面板即可。（`tail -f` 看腻了按 `Ctrl+C` 退出，不影响后台任务。）
-
-放宽了时间窗或加了关键词之后，第一次跑会明显变慢 —— 多出来的岗位都要逐个抓 JD 全文，
-十几分钟很正常，中途 `Ctrl+C` 也没关系，下次接着抓。
-
-**注意区分**：面板的自动重载只管 `radar/` 下的 Python 代码（改了刷新浏览器就行），
-跟 `config.yaml` / `profile.md` 无关 —— 那两个必须重新跑抓取。
-
----
-
-## ⚠️ 三个已经踩过的坑，别再踩
-
-### 1. 项目不能放在「桌面 / 文稿 / 下载」里
-
-macOS 的 TCC 机制把这三个目录列为受保护区域。你在终端里跑没问题（Terminal 有授权），
-但 **launchd 启动的后台任务会被拒绝**，报错长这样：
-
-```
-shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
-/bin/bash: .../run-daily.sh: Operation not permitted
-```
-
-所以项目放在 `~/auto_job/job-radar`（主目录下，不受保护）。
-想在桌面上留个入口，建软链接而不是把文件夹搬回去：
-
-```bash
-ln -s ~/auto_job ~/Desktop/auto_job
-```
-
-**如果哪天要移动项目位置**，记得同步改这三处的绝对路径：
-`scripts/run-daily.sh`、`scripts/com.kowai.job-radar.plist`、
-`scripts/com.kowai.job-radar-web.plist`，然后重新加载两个后台任务。
-
-### 2. 从 README 复制命令时，别把行尾注释一起粘进 zsh
-
-zsh 交互式默认**不把 `#` 当注释**，`grep foo   # 说明` 会把 `#` 和说明当成文件名传给 grep。
-本文件里的注释都写在命令上一行，整段粘贴是安全的。
-
-### 3. 路由函数的类型注解不能写 `int | None`
-
-你的 Python 是 3.9，而 `X | None` 要 3.10。普通函数因为有
-`from __future__ import annotations` 不会真的求值所以没事，
-但 **FastAPI 会强制求值路由函数的注解**，一写就崩。路由里统一用 `Optional[int]`。
-
-### 4. 重装 LaunchAgent 时 `bootout` 和 `bootstrap` 之间要等一下
-
-`bootout` 是异步的，返回了不代表卸载干净。紧接着 `bootstrap` 会报
-`Bootstrap failed: 5: Input/output error`，意思是"这个标签还在"。中间加一句 `sleep 3`：
-
-```bash
-launchctl bootout gui/$(id -u)/com.kowai.job-radar-web 2>/dev/null
-sleep 3
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kowai.job-radar-web.plist
-launchctl list | grep job-radar
-```
-
-最后一行要能看到带进程号的记录才算成功。
-
----
-
-## 快速开始
+## Quick start
 
 ```bash
 cd job-radar
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 这条命令成功时没有任何输出，这是正常的
+# This command prints nothing on success — that's expected
 cp .env.example .env
-# 用文本编辑器打开，填 DEEPSEEK_API_KEY 和 SMTP 信息
+# Open it and fill in DEEPSEEK_API_KEY and your SMTP details
 open -e .env
-# 确认填进去了
+# Confirm they landed
 cat .env
 
-# 第一次先小步试：只抓 20 个 JD，不花钱、不发邮件，大约 3 分钟
+# Start small: fetch only 20 job descriptions, no cost, no email. ~3 minutes.
 python -m radar.cli run --dry-run --max-details 20
 
-# 确认抓得到东西、过滤合理之后，跑完整流程
+# Once you can see postings coming in and the filtering looks sane, run the full pipeline
 python -m radar.cli run
 ```
 
-第一次跑建议先把 `config.yaml` 里的 `time_filter` 改成 `r604800`（过去 7 天），
-攒一批数据看看过滤效果，调好了再改回 `r86400`（24 小时）。
+On the first run, set `time_filter` in `config.yaml` to `r604800` (last 7 days) to build up a sample and see how the filter behaves. Switch back to `r86400` (24 hours) once it's tuned.
 
-### 它要跑多久？为什么看起来像卡住了
+### How long it takes, and why it looks stuck
 
-慢是故意的。为了不触发 LinkedIn 的 IP 限速，每个请求之间要 sleep 3–6 秒，
-而一次完整运行的请求数大致是：
+The slowness is deliberate. To avoid tripping LinkedIn's IP rate limiting, every request sleeps 3–6 seconds. A full run is roughly:
 
 ```
-9 组关键词 × 最多 4 页  ≈ 36 次列表请求   ≈ 3 分钟
-+ 每个新岗位 1 次详情请求（首次跑可能上百个）≈ 8–12 分钟
+9 keyword groups × up to 4 pages  ≈ 36 listing requests        ≈ 3 minutes
++ 1 detail request per new posting (hundreds on the first run)  ≈ 8–12 minutes
 ```
 
-所以**首次全量跑 10–15 分钟是正常的**，之后每天只有新增岗位，通常 2–4 分钟。
+So **10–15 minutes for the first full run is normal**. After that only new postings are fetched — usually 2–4 minutes.
 
-补抓 JD 那一段现在每条都有一行进度输出（`23/120 ✓ Working Student AI …`），
-不会再出现长时间没动静的情况。
+The detail-fetching stage prints a progress line per posting (`23/120 ✓ Working Student AI …`), so it no longer goes silent for long stretches.
 
-**随时可以 Ctrl+C 停掉**，数据是逐条写进 SQLite 的，不会丢；下次运行会自动
-从没抓完的地方接着补。用 `--max-details N` 可以限制单次最多抓多少个 JD，
-剩下的留到下次。
+**You can Ctrl+C at any time.** Records are written to SQLite one at a time, so nothing is lost — the next run picks up where it left off. Use `--max-details N` to cap how many descriptions a single run fetches and leave the rest for later.
 
 ---
 
-## 面板
+## How it works
 
-面板是一个常驻后台的本地服务，**开机自启，不用每次开终端**。
-浏览器打开下面这个地址就行（建议存成书签）：
+### The language gate
+
+This is the part that has to be right, so it does not do the crude thing of searching the whole description for keywords — that would flag `Deutschland`, `German office` and similar false positives. Instead:
+
+1. **Split into sentences**, and only consider sentences that mention German.
+2. **Strip non-language uses** — `German office`, `deutscher Markt`, `Deutsche Bahn` and friends are removed; if the sentence no longer mentions the language afterwards, skip it.
+3. **Check for nice-to-have phrasing first** — `von Vorteil`, `nice to have`, `is a plus`, `not required`, `English is our company language` → `optional`, keep the posting.
+4. **`A1/A2/B1`, `Grundkenntnisse`, `basic German`** → `optional`, within reach.
+5. **Anything left that hits a requirement term** → `required`, drop it. The term list covers:
+   - German fluency: `fließend` / `verhandlungssicher` / `in Wort und Schrift` / `muttersprachlich` / `sehr gute Deutschkenntnisse` / `sichere Deutschkenntnisse` / `beherrschen`
+   - German requirement verbs: `erforderlich` / `vorausgesetzt` / `Voraussetzung` / `zwingend` / `notwendig` / `unerlässlich` / `mindestens`
+   - English: `fluent` / `native` / `business fluent` / `good command of German` / `proficiency` / `required` / `mandatory` / `essential` / `must speak`
+   - Levels: `B2` / `C1` / `C2` always count as a requirement
+   - Constructions like `Deutsch und Englisch` that ask for both languages
+6. **Anything undecidable (`unclear`)** is kept, labelled, and handed to the model to re-check during scoring. If the model returns `german_requirement: required`, it gets dropped too.
+
+After editing the term list, run the corpus test:
+
+```bash
+# 39 real-world JD phrasings — all must pass
+python tests/test_german.py
+# LinkedIn card parsing
+python tests/test_parse.py
+# Score parsing, including the malformed-response retry path
+python tests/test_score.py
+```
+
+### Scoring
+
+The model receives `profile.md` plus the full job description and returns a structured result. Score ceilings are tiered by direction — the profile is a career transition, so roles matching the *previous* background are deliberately capped low:
+
+| Direction | Ceiling |
+| --- | --- |
+| `ai_llm` — AI / LLM application development | 100 |
+| `tooling_automation` — internal tooling and automation | 100 |
+| `data_mlops` — data engineering / MLOps | 85 |
+| `general_swe` — general software engineering | 85 |
+| `efficiency` — process / efficiency work | 85 |
+| `other` — everything else, including the previous background | 40 |
+
+Two rules sit on top of the ceilings:
+
+- **A German requirement caps the score at 20**, regardless of direction. This is a separate rule from the ceilings, so a perfect-fit AI role that demands C1 German still scores below the reporting threshold.
+- **Calibration bands are stated explicitly**: 85+ is "apply now", 70–84 "worth applying", 55–69 "if there's time", below 55 "don't bother". The prompt also instructs the model *not* to cluster everything around 70, which otherwise happens.
+
+The regex verdict from the language gate is passed into the prompt as a hint, along with the sentence that triggered it — the model re-checks rather than trusting it blindly, and a model verdict of `required` overrides a regex verdict of `unclear`.
+
+The reporting threshold is `min_score_to_report` in `config.yaml`, default 55.
+
+### The output schema
+
+Defined as a pydantic model in `radar/score.py`:
+
+| Field | Type | Constraint |
+| --- | --- | --- |
+| `score` | `int` | 0–100, enforced by pydantic |
+| `verdict` | enum | `apply` / `maybe` / `skip` |
+| `direction` | enum | the six values above |
+| `german_requirement` | enum | `required` / `optional` / `none` / `unclear` |
+| `is_student_role` | `bool` | |
+| `hours_per_week` | `str` | free text from the posting; `"unknown"` if not stated |
+| `one_line` | `str` | one-sentence summary of the role |
+| `match_reasons` | `list[str]` | must quote the posting — see note below |
+| `gaps` | `list[str]` | what the candidate is missing |
+| `red_flags` | `list[str]` | empty array when there are none |
+
+The whole object is stored as JSON in the `analysis` column, and the dashboard renders it when a row is expanded.
+
+Note that the list length limits (`match_reasons` ≤ 4, `gaps` ≤ 3) are **prompt-level instructions, not schema constraints** — pydantic will happily accept longer lists. Add `max_length` to the `Field(...)` declarations if you want them enforced.
+
+`match_reasons` is also instructed to quote the actual wording or tech stack from the posting rather than producing "skills match" boilerplate. That one instruction is what makes the dashboard worth reading.
+
+### Tuning the scoring
+
+Everything lives in `radar/score.py`. Which part to edit depends on what you want to change:
+
+| I want to change… | Edit |
+| --- | --- |
+| **The score ceiling for a direction** | Rule 1 in the `SYSTEM` prompt |
+| **The direction categories themselves** | Three places, in sync — see below |
+| **How strict the German penalty is** | Rule 2 in `SYSTEM` (currently: `required` → score ≤ 20) |
+| **What kind of work scores well** | Rules 3–4 in `SYSTEM` |
+| **The calibration bands** | Rule 5 in `SYSTEM` |
+| **The output fields** | The `JobScore` model, the `SCHEMA_EXAMPLE` constant, and the field-constraint list at the end of `SYSTEM` |
+| **The language of the generated text** | The output-language line in `SYSTEM` |
+| **Which model, temperature, token budget** | `config.yaml` → `scoring`; `max_tokens` is in `Scorer._call` |
+
+#### Adding or removing a direction
+
+This is the one change that breaks if done halfway, because the direction list appears in **three** places that must agree:
+
+1. The `Direction` type alias — pydantic rejects any value not listed here, so a missing entry means every response fails validation.
+2. The `direction` line in the field-constraint block at the end of `SYSTEM` — the model only emits values it has been shown.
+3. Rule 1 in `SYSTEM`, which assigns the ceiling — a direction with no stated ceiling gets scored arbitrarily.
+
+Also update `SCHEMA_EXAMPLE` if the direction you removed was the one used in the example.
+
+Miss (1) and everything fails validation and gets skipped. Miss (2) and the model never emits the new value. Miss (3) and the scores are meaningless. The symptom differs in each case, which makes it worth changing all three in one pass.
+
+#### Changing the output language
+
+The language of the generated free-text fields is set by one line in `SYSTEM`. Change it and the schema and scoring logic are unaffected — they are language-independent.
+
+Note that `SCHEMA_EXAMPLE` also carries a language: the model follows the example more closely than the instruction, so if the two disagree the output will drift between languages. Keep them consistent, or state in the prompt that the example shows format only.
+
+Existing rows keep whatever language they were scored in. To re-score them:
+
+```bash
+python -m radar.cli run --skip-fetch
+```
+
+### Why not structured outputs
+
+DeepSeek only supports JSON mode (`response_format={"type": "json_object"}`) — there is no schema-enforced structured output. The API also requires the word "json" and a format example to appear in the prompt, which is why `SCHEMA_EXAMPLE` exists.
+
+So the flow is: show a JSON example in the prompt → validate the response with pydantic → on a validation error, hand the error text back to the model and let it correct itself once → if it still fails, skip that posting and log it.
+
+### Two retry layers
+
+They handle different failures and are easy to confuse:
+
+| Layer | Where | Handles | Behaviour |
+| --- | --- | --- | --- |
+| Transport | `Scorer._call` | Rate limits, connection errors, empty responses | 3 attempts; 20/40/60s backoff on rate limits, 5/10/15s otherwise |
+| Schema | `Scorer.score` | Malformed or invalid JSON | 1 retry, with the validation error fed back into the conversation |
+
+The empty-response case is handled explicitly because DeepSeek's own documentation notes that JSON mode occasionally returns empty content. Responses sometimes also arrive wrapped in a ```` ```json ```` fence despite the instruction not to, so `_strip_fence` removes it before validation.
+
+A posting that fails both layers is skipped rather than stored with a partial result — the row stays unscored and gets picked up on the next run.
+
+After changing any of this:
+
+```bash
+python tests/test_score.py
+```
+
+The test covers each path with fake responses: valid, fence-wrapped, invalid once then corrected, invalid twice, and empty. If you added a field to `JobScore`, add a case for it.
+
+### Cost
+
+Only postings that survive the hard filters are sent for scoring. Of the Werkstudent roles posted in Berlin on a given day, usually somewhere between a dozen and a few dozen make it past the title, location and language filters. A job description runs about 1.5–2k tokens.
+
+At `deepseek-flash` off-peak pricing ($0.15/1M input, $0.6/1M output), that works out to **roughly $0.02 per day — under a dollar a month**.
+
+Two things worth knowing:
+
+- DeepSeek prices by time of day. Peak hours (Mon–Fri 01:00–04:00 and 06:00–10:00 UTC) cost twice off-peak. The GitHub Actions workflow runs at 05:00 UTC, which falls between the two peaks.
+- Cached input is 50× cheaper ($0.003/1M). The system prompt — your profile — is identical on every call and hits the cache automatically, so real spend is usually below the estimate above.
+
+The cost controls in `config.yaml`: `max_jobs_per_run` (how many postings a single run will score), `model` (switch to `deepseek-v4-pro`, ~4× the price, if scoring feels imprecise), and `temperature` (lower from 1.0 to 0.3 for more stable scores).
+
+---
+
+## The dashboard
+
+The dashboard is a local service that runs in the background and **starts on login — no terminal needed**. Open it in a browser (worth bookmarking):
 
 ```
 http://127.0.0.1:8000
 ```
 
-面板读的是抓取脚本写的同一个 `jobs.db`，所以跟邮件没有先后关系 —— 任何时候打开，
-看到的都是那一刻的最新数据。
+It reads the same `jobs.db` the fetcher writes to, so it has no ordering relationship with the email — whenever you open it, you see the current state.
 
-顶上一个大数字回答唯一重要的问题：**还有几个岗位等你处理**（分数过线、且你还没标记过的）。
-下面四张卡是想投 / 已投递 / 面试中 / 回复率。
+A single large number at the top answers the only question that matters: **how many postings are waiting for you** (above the score threshold and not yet triaged). Four cards below it show shortlisted / applied / interviewing / response rate.
 
-标签页按申请状态分类，每个都带数量：
+Tabs group postings by application status, each with a count:
 
-| 状态       | 含义                           |
-| -------- | ---------------------------- |
-| 待处理      | 新抓到、还没看过的（默认视图，早上就看这个）       |
-| 想投       | 看过了觉得值得投，但还没写申请              |
-| 已投       | 投出去了，会自动记录投递日期               |
-| 面试中 / 被拒 | 有回音之后手动标                     |
-| 忽略       | 看过觉得不合适，从待处理里清掉              |
-| 被过滤      | 规则阶段就被淘汰的，**定期翻一下确认德语门槛没误杀** |
+| Status | Meaning |
+| --- | --- |
+| Inbox | Newly fetched, not yet reviewed (the default view — this is the morning view) |
+| Shortlisted | Reviewed and worth applying to, application not written yet |
+| Applied | Submitted; the date is recorded automatically |
+| Interviewing / Rejected | Marked by hand once you hear back |
+| Dismissed | Reviewed and not a fit, cleared out of the inbox |
+| Filtered | Dropped at the rule stage — **check this periodically to confirm the language gate isn't over-filtering** |
 
-点表格任意一行展开详情：一句话概括、匹配理由、欠缺、红旗、德语判定依据、原岗位链接，
-以及一排状态按钮和一个备注框（失焦自动保存）。筛选栏可以按方向、德语状态、来源、
-关键词过滤，并按分数/日期/公司/状态排序。
+Click any row to expand it: one-line summary, match reasons, gaps, red flags, the evidence behind the German verdict, and a link to the original posting — plus a row of status buttons and a notes box that saves on blur. The filter bar narrows by direction, language status, source and keyword, and sorts by score, date, company or status.
 
-底部「搜索关键词设置」可以增删关键词并写回 `config.yaml`。**下次抓取才生效**，
-不会立刻重新抓。这里只改 `searches` 那几行，`config.yaml` 里的注释和其它配置不受影响。
+At the bottom, the search-keyword editor adds and removes keywords and writes them back to `config.yaml`. **Changes apply on the next fetch**, not immediately. It only touches the `searches` block; comments and other settings in `config.yaml` are left alone.
 
-### 想让它更像个 App
+### Making it feel like an app
 
-Chrome 打开面板 → 右上角三个点 → 投放、保存和分享 → 创建快捷方式 → 勾「在窗口中打开」。
-Dock 里会多一个图标，点开是独立窗口，看不出是浏览器。
+In Chrome: open the dashboard → three-dot menu → Cast, save and share → Create shortcut → tick "Open as window". You get a Dock icon that opens a standalone window with no browser chrome.
 
-### 改了代码不用重启
+### Code changes don't need a restart
 
-面板服务带 `--reload`，uvicorn 会盯着 `radar/` 下的 `.py` 文件，一有改动自己重启，
-**浏览器刷新即可**。`dashboard.html` 本来就是每次请求从磁盘读，改了直接刷新生效。
+The dashboard service runs with `--reload`. uvicorn watches `.py` files under `radar/` and restarts itself on change — **just refresh the browser**. `dashboard.html` is read from disk on every request, so edits take effect on refresh anyway.
 
-只监听 `.py`，所以每天写 `jobs.db` 不会触发重启。需要 `watchfiles` 包（已在
-requirements.txt 里）。
+Only `.py` files are watched, so the daily writes to `jobs.db` don't trigger restarts. This needs the `watchfiles` package (already in `requirements.txt`).
 
-真要手动重启（换了依赖、服务卡死）：
+To restart by hand (new dependency, or the service has wedged):
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.kowai.job-radar-web
 ```
 
-### 面板起不来的时候
+### When the dashboard won't start
 
 ```bash
 tail -20 ~/auto_job/job-radar/logs/web.err.log
 ```
 
-出现 `Address already in use` 说明 8000 端口被别的程序占了，
-改 `scripts/com.kowai.job-radar-web.plist` 里的启动参数加 `--port 8010`，重新加载即可。
+`Address already in use` means something else holds port 8000. Add `--port 8010` to the launch arguments in `scripts/com.kowai.job-radar-web.plist` and reload.
 
-手动前台启动（调试用，Ctrl+C 退出）：
+To run it in the foreground for debugging (Ctrl+C to quit):
 
 ```bash
 cd ~/auto_job/job-radar
@@ -213,120 +273,71 @@ cd ~/auto_job/job-radar
 
 ---
 
-## 语言门槛是怎么判的
+## Configuration
 
-这是整个过滤里最需要准的一环，所以没有用"整篇 JD 搜关键词"的糙办法
-（那样 `Deutschland`、`German office` 都会误伤）。做法是：
+### What to change, and where
 
-1. **分句**，只看提到德语的句子
-2. **剔除非语言用法** —— `German office` / `deutscher Markt` / `Deutsche Bahn` 这类被抹掉后如果整句不再提德语，就跳过
-3. **加分项优先判定** —— `von Vorteil`、`nice to have`、`is a plus`、`not required`、
-   `English is our company language` → `optional`，保留
-4. **A1/A2/B1、Grundkenntnisse、basic German** → `optional`，你够得着
-5. **剩下的命中要求词** → `required`，直接丢弃。词表覆盖：
-   - 德语流利度：`fließend` / `verhandlungssicher` / `in Wort und Schrift` / `muttersprachlich` /
-     `sehr gute Deutschkenntnisse` / `sichere Deutschkenntnisse` / `beherrschen`
-   - 德语要求动词：`erforderlich` / `vorausgesetzt` / `Voraussetzung` / `zwingend` /
-     `notwendig` / `unerlässlich` / `mindestens`
-   - 英语：`fluent` / `native` / `business fluent` / `good command of German` /
-     `proficiency` / `required` / `mandatory` / `essential` / `must speak`
-   - 等级：`B2` / `C1` / `C2` 一律算要求
-   - `Deutsch und Englisch` 这种"两种语言都要"的句式
-6. **判断不了的（unclear）** 不丢，标注后交给模型在打分时复核；
-   模型给出 `german_requirement: required` 的同样丢掉
+| I want to change… | Edit | What happens next |
+| --- | --- | --- |
+| **What counts as a match** (target roles, skills, hard exclusions) | `profile.md` | Applies on the next fetch |
+| **Search keywords** | The keyword editor at the bottom of the dashboard, or `searches` in `config.yaml` | Applies on the next fetch; does not re-fetch immediately |
+| **Search location, time window, page depth** | `config.yaml` → `sources.linkedin` | Same |
+| **Score threshold** (below which postings stay out of the digest) | `config.yaml` → `scoring.min_score_to_report` | Same |
+| **Which model, and what it costs** | `config.yaml` → `scoring.model` | Same |
+| **How strict the language gate is** | `config.yaml` → `filters.german`; term list in `radar/german.py` | After editing the term list, run `python tests/test_german.py` |
+| **Scoring rules** (per-direction ceilings, calibration, output language) | The `SYSTEM` prompt in `radar/score.py` — see [Tuning the scoring](#tuning-the-scoring) | Applies on the next fetch |
+| **What time it runs** | `Hour` / `Minute` in `scripts/com.kowai.job-radar.plist` | Needs a reload — see [Scheduling](#scheduling) |
+| **API key, mail password** | `.env` | Immediate |
+| **Dashboard appearance** | `radar/static/dashboard.html` | Refresh the browser |
 
-改了词表之后跑一遍语料测试：
+Day to day, only the first two rows move. The rest are set once.
+
+### Applying a change without waiting until 07:00
+
+`config.yaml` and `profile.md` are **read when the fetch job starts** — editing the files on their own triggers nothing. To see the effect immediately, run once by hand:
 
 ```bash
-# 39 条真实 JD 写法，全过才算没改坏
-python tests/test_german.py
-# LinkedIn 卡片解析
-python tests/test_parse.py
-# 打分结果的解析与纠错重试
-python tests/test_score.py
+launchctl kickstart -p gui/$(id -u)/com.kowai.job-radar
+tail -f ~/auto_job/job-radar/logs/daily.log
 ```
 
----
+Refresh the dashboard when it finishes. (Ctrl+C out of `tail -f` whenever you like — it doesn't affect the background job.)
 
-## 打分口径
+After widening the time window or adding keywords, the first run will be noticeably slower: every additional posting needs its full description fetched. Ten to fifteen minutes is normal, and Ctrl+C is safe — the next run continues from where it stopped.
 
-DeepSeek 拿到 `profile.md` + JD 全文，返回结构化结果（分数 / 方向 / 德语要求 /
-匹配理由 / 欠缺 / 红旗）。分数上限按方向分层：
-
-| 方向                         | 上限  |
-| -------------------------- | --- |
-| AI / LLM 应用开发、内部工具与自动化     | 100 |
-| 数据工程 / MLOps、通用软件工程        | 85  |
-| 其他（含旧背景对口的岗位） | 40  |
-
-想改回去就改 `radar/score.py` 里的 `SYSTEM` 提示词，以及 `profile.md`。
-
-分数线在 `config.yaml` 的 `min_score_to_report`，默认 55。
-
-### 为什么不用 structured outputs
-
-DeepSeek 只支持 JSON 模式（`response_format={"type": "json_object"}`），没有强制
-schema 的结构化输出。所以流程是：提示词里给出 JSON 样例 → 拿到结果用 pydantic
-校验 → 不合规就把报错甩回去让它改一次 → 还不行就跳过这条。
-
-`tests/test_score.py` 用假响应覆盖了这几条路径（正常 / 带 ```json 包裹 /
-首次不合规 / 连续不合规 / 空响应），改提示词后跑一遍。
+**Don't confuse the two reload mechanisms**: the dashboard's auto-reload only covers Python code under `radar/` (edit, refresh browser, done). It has nothing to do with `config.yaml` or `profile.md` — those require a new fetch run.
 
 ---
 
-## 成本
+## Scheduling
 
-只有通过硬过滤的岗位才会送去打分。柏林每天新增的 Werkstudent 岗位过完
-标题/地点/德语三道过滤，通常剩十几到几十条，一条 JD 大约 1.5–2k token。
+### Two background jobs
 
-按 `deepseek-flash`（非高峰期 $0.15/1M 输入、$0.6/1M 输出）估算，
-**每天大约 $0.02，一个月不到 1 美元**。
+Two LaunchAgents are installed; both configs live in `scripts/`:
 
-两点值得知道：
+| Label | What it does | When it runs |
+| --- | --- | --- |
+| `com.kowai.job-radar` | Daily fetch + scoring + email | 07:00 daily; if the Mac was asleep, it runs on wake |
+| `com.kowai.job-radar-web` | Dashboard service | Starts on login, stays resident, restarts on crash |
 
-- DeepSeek 按时段浮动计价，高峰期（UTC 周一到周五 01:00–04:00、06:00–10:00）
-  是非高峰的两倍。GitHub Actions 定在 05:00 UTC 跑，正好卡在两个高峰之间。
-- 命中缓存的输入便宜 50 倍（$0.003/1M）。系统提示词（你的 profile）每次都一样，
-  会自动命中缓存，所以实际花费通常比上面估的还低。
-
-`config.yaml` 里的闸门：`max_jobs_per_run`（单次最多打分几条）、
-`model`（觉得打分不准就换成 `deepseek-v4-pro`，贵约 4 倍）、
-`temperature`（想让分数更稳定就从 1.0 调到 0.3）。
-
----
-
-## 定时
-
-### 两个后台任务
-
-项目装了两个 LaunchAgent，配置文件都在 `scripts/` 里：
-
-| Label                     | 干什么             | 何时运行                |
-| ------------------------- | --------------- | ------------------- |
-| `com.kowai.job-radar`     | 每日抓取 + 打分 + 发邮件 | 每天 07:00，睡眠错过则唤醒后补跑 |
-| `com.kowai.job-radar-web` | 面板服务            | 登录即启动，常驻；崩溃自动重启     |
-
-一次装好两个：
+Install both at once:
 
 ```bash
 cd ~/auto_job/job-radar
 ./scripts/install-agents.sh
 ```
 
-脚本会从 `scripts/*.plist.template` 生成带本机绝对路径的 plist、装进
-`~/Library/LaunchAgents/` 并加载，中间自动处理 `bootout` 的异步等待。
-**项目换了位置之后重跑一次这个脚本就行**，不用手改任何路径。
+The script generates plists with this machine's absolute paths from `scripts/*.plist.template`, installs them into `~/Library/LaunchAgents/` and loads them, handling the asynchronous `bootout` wait along the way. **If you move the project, just re-run this script** — no paths to edit by hand.
 
-它还会拦住一个坑：如果项目在 桌面/文稿/下载 里，直接报错退出并提示你搬走
-（那三个目录 macOS 不让后台任务访问，见开头的踩坑清单）。
+It also catches one trap: if the project sits in Desktop, Documents or Downloads it exits with an error telling you to move it (macOS blocks background jobs from those directories — see [Gotchas](#gotchas)).
 
-确认都装上了（应该看到两行）：
+Confirm both are loaded (you should see two lines):
 
 ```bash
 launchctl list | grep job-radar
 ```
 
-全部卸载：
+Remove everything:
 
 ```bash
 launchctl bootout gui/$(id -u)/com.kowai.job-radar
@@ -334,14 +345,13 @@ launchctl bootout gui/$(id -u)/com.kowai.job-radar-web
 rm ~/Library/LaunchAgents/com.kowai.job-radar*.plist
 ```
 
-改了任何一个 plist 之后，必须先 `bootout` 再 `cp` 再 `bootstrap`，
-光改文件不重新加载是不生效的。
+After editing either plist you must `bootout`, then `cp`, then `bootstrap`. Editing the file alone changes nothing.
 
-### 方式一：launchd（推荐，跑在你自己的 Mac 上）
+### Option 1: launchd (recommended — runs on your own Mac)
 
-安装命令见上面「两个后台任务」。默认每天本地时间 **07:00** 跑一次。
+Installation is above. Default is **07:00** local time, daily.
 
-改时间：编辑 `scripts/com.kowai.job-radar.plist` 里的 `Hour` / `Minute`，然后重新加载：
+To change the time, edit `Hour` / `Minute` in `scripts/com.kowai.job-radar.plist`, then reload:
 
 ```bash
 launchctl bootout gui/$(id -u)/com.kowai.job-radar
@@ -349,103 +359,138 @@ cp scripts/com.kowai.job-radar.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kowai.job-radar.plist
 ```
 
-立刻触发一次（不用等到明早，用来验证配置对不对）：
+Trigger a run right now (to verify the config without waiting until morning):
 
 ```bash
 launchctl kickstart -p gui/$(id -u)/com.kowai.job-radar
 tail -f ~/auto_job/job-radar/logs/daily.log
 ```
 
-**为什么用 launchd 不用 cron**：cron 在 Mac 合盖休眠时会直接跳过，醒来也不补；
-launchd 的 `StartCalendarInterval` 会在唤醒后补跑一次。也就是说你 7 点还在睡、
-9 点打开电脑，它 9 点会自己跑，你泡杯咖啡的功夫结果就到邮箱了。
+**Why launchd and not cron**: cron simply skips a scheduled run if the Mac is asleep and never makes it up. launchd's `StartCalendarInterval` runs the missed job once the machine wakes. So if you're still asleep at 07:00 and open the laptop at 09:00, it runs at 09:00 and the results are in your inbox by the time the coffee is ready.
 
-前提是 Mac 开着机并且你已登录（LaunchAgent 跑在用户会话里）。彻底关机期间不会跑，
-下次开机登录后补。
+This assumes the Mac is powered on and you're logged in — a LaunchAgent runs inside the user session. Nothing runs while the machine is fully shut down; it catches up at the next login.
 
-日志在 `logs/daily.log`，只保留最近 2000 行。
+Logs are in `logs/daily.log`, trimmed to the last 2000 lines.
 
-### 方式二：GitHub Actions（电脑关着也能跑）
+### Option 2: GitHub Actions (runs with the laptop closed)
 
-`.github/workflows/daily.yml` 已经配好：工作日 05:00 UTC（柏林 07:00）跑一次，
-把 `jobs.db` 和 `reports/` 提交回仓库。
+`.github/workflows/daily.yml` is ready to go: weekdays at 05:00 UTC (07:00 Berlin), committing `jobs.db` and `reports/` back to the repository.
 
-需要先把项目推成 **私有仓库**（里面有你的求职数据），然后在
-**Settings → Secrets and variables → Actions** 里加：
-`DEEPSEEK_API_KEY`、`SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASS`、
-`MAIL_FROM`、`MAIL_TO`。
+This requires pushing the project as a **private repository** (it holds your job-search data), then adding these under **Settings → Secrets and variables → Actions**: `DEEPSEEK_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`.
 
-⚠️ **实际风险**：GitHub Actions 的出口 IP 属于 Azure 数据中心段，LinkedIn 对这类
-IP 的限流比家庭宽带严厉得多，很可能大面积吃 429/999 而抓不到东西。
-所以这条路更适合作为 launchd 的补充（比如你要出门一周），不建议当主力。
+⚠️ **The real risk**: GitHub Actions egress IPs sit in Azure datacenter ranges, and LinkedIn throttles those far more aggressively than residential connections. Expect widespread 429/999 responses and little data. Treat this as a supplement to launchd — for a week away from the machine, say — rather than the primary path.
 
-Gmail 的 `SMTP_PASS` 要用**应用专用密码**（开两步验证后生成的 16 位），不是登录密码。
+For Gmail, `SMTP_PASS` must be an **app-specific password** (the 16-character one generated after enabling two-factor auth), not your account password.
 
 ---
 
-## 如何个性化调整筛选条件
+## Gotchas
 
-这套系统的**筛选逻辑是通用的，配置是为柏林 + 无德语 + Werkstudent 定制的**。
-按顺序改这四处：
+Four things already learned the hard way.
 
-| 文件 | 改什么 |
-|---|---|
-| `profile.md` | 整份换掉。复制 `profile.example.md` 照着填，这是打分的唯一基准 |
-| `config.yaml` → `location` | 换成新的城市，如 `"Munich, Germany"` / `"Amsterdam, Netherlands"` |
-| `config.yaml` → `searches` | 换成新方向的关键词，德语区留德语词，其它地区全用英语 |
-| `radar/score.py` → `SYSTEM` | 各方向的分数上限是照着某个人的转型路径写的，得按自己的情况重写 |
+### 1. The project cannot live in Desktop, Documents or Downloads
 
-**德语门槛（`radar/german.py`）是否保留**：
+macOS TCC treats those three directories as protected. Running from a terminal is fine (Terminal has been granted access), but **jobs launched by launchd are denied**, with errors like:
 
-- 在德国求职但不会德语 → 保留，这是整套系统最值钱的部分
-- 德语流利 → 把 `config.yaml` 里 `filters.german.drop_when_required` 改成 `false`，
-  判定结果只标注不丢弃
-- 不在德语区 → 整段可以不管，JD 里不会提德语，判定结果永远是 `none`，不影响任何东西
+```
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: .../run-daily.sh: Operation not permitted
+```
 
-还需要添加自己的 **DeepSeek API key**（各自计费，别共用）和自己的 **SMTP 应用专用密码**。
-
-装好之后建议先 `python -m radar.cli run --dry-run --max-details 20` 空跑一次，
-看看过滤效果对不对，再开定时任务。
-
----
-
-## 合规与风险
-
-- 脚本**不登录** LinkedIn，只请求公开的 guest 接口，所以**没有账号被封的风险**。
-- 但 LinkedIn 的用户协议本身是禁止自动化抓取的，公开页面也不例外。
-  实际风险落在 IP 层（429 / 999），所以 `request_delay` 默认 3–6 秒，**不要往下调**。
-- guest 接口是非公开接口，LinkedIn 改版时解析会失效。每个解析步骤都是独立
-  try/except，失效时会跳过并记日志，不会让整个脚本崩 —— 但日报会突然变空，
-  那就是该跑 `tests/test_parse.py` 的信号。
-- Arbeitnow 是官方开放的免费 JSON API，完全合规，建议保持开启作为兜底源。
-
----
-
-## 常用命令
+So the project lives at `~/auto_job/job-radar` — under the home directory, unprotected. If you want it reachable from the Desktop, symlink it rather than moving the folder back:
 
 ```bash
-# 只抓取+过滤，不花钱不发信
+ln -s ~/auto_job ~/Desktop/auto_job
+```
+
+**If you ever relocate the project**, three absolute paths need updating in step: `scripts/run-daily.sh`, `scripts/com.kowai.job-radar.plist` and `scripts/com.kowai.job-radar-web.plist` — then reload both agents. (Or just re-run `install-agents.sh`, which does it for you.)
+
+### 2. Don't paste trailing comments into zsh
+
+Interactive zsh **does not treat `#` as a comment by default**, so `grep foo   # explanation` passes `#` and the explanation to grep as filenames. Every comment in this file is written on the line above its command, so pasting a whole block is safe.
+
+### 3. Route handler annotations can't use `int | None`
+
+This runs on Python 3.9, and `X | None` needs 3.10. Ordinary functions get away with it because `from __future__ import annotations` means the annotation is never evaluated — but **FastAPI force-evaluates route handler annotations**, so it crashes immediately. Use `Optional[int]` in routes.
+
+### 4. Wait between `bootout` and `bootstrap` when reinstalling a LaunchAgent
+
+`bootout` is asynchronous; returning doesn't mean the unload finished. Calling `bootstrap` straight after fails with `Bootstrap failed: 5: Input/output error`, meaning "that label is still registered". Put a `sleep 3` in between:
+
+```bash
+launchctl bootout gui/$(id -u)/com.kowai.job-radar-web 2>/dev/null
+sleep 3
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kowai.job-radar-web.plist
+launchctl list | grep job-radar
+```
+
+The last line has to show a record with a PID for the install to have worked.
+
+---
+
+## Adapting it to your own search
+
+**The filtering logic is generic; the configuration is tuned for Berlin + no German + Werkstudent roles.** Change these four things, in order:
+
+| File | What to change |
+| --- | --- |
+| `profile.md` | Replace it entirely. Copy `profile.example.md` and fill it in — this is the only thing scoring is measured against |
+| `config.yaml` → `location` | Your city, e.g. `"Munich, Germany"` / `"Amsterdam, Netherlands"` |
+| `config.yaml` → `searches` | Keywords for your direction. Keep German terms in German-speaking regions; use English everywhere else |
+| `radar/score.py` → `SYSTEM` | The per-direction ceilings were written around one person's career transition — rewrite them for yours. See [Tuning the scoring](#tuning-the-scoring) |
+
+**Whether to keep the language gate (`radar/german.py`):**
+
+- Job hunting in Germany without German → keep it. It's the most valuable part of the system.
+- Fluent in German → set `filters.german.drop_when_required` to `false` in `config.yaml`; verdicts are then labelled but nothing is dropped.
+- Not in a German-speaking region → ignore it. Job descriptions won't mention German, the verdict will always be `none`, and nothing is affected.
+
+You'll also need your own **DeepSeek API key** (billed separately — don't share one) and your own **SMTP app-specific password**.
+
+Once installed, do a dry run first — `python -m radar.cli run --dry-run --max-details 20` — check that the filtering looks right, then enable the scheduled job.
+
+---
+
+## Compliance notes
+
+Arbeitnow is used through its official public JSON API — fully sanctioned, and worth keeping enabled as a fallback source.
+
+LinkedIn is accessed only through the unauthenticated **guest endpoint**: no login, no authentication bypass, public data only — so there is no risk to a LinkedIn account. Requests are rate-limited to one every 3–6 seconds by design; **do not lower this**. Scraping is nonetheless outside LinkedIn's terms of use, so this tool is intended for personal, non-commercial job search. The collected data is never published — `jobs.db` is gitignored for exactly that reason.
+
+The practical risk sits at the IP layer (429 / 999 responses). Since the guest endpoint is undocumented, parsing will break whenever LinkedIn changes its markup. Every parsing step is wrapped in its own try/except, so a failure skips that record and logs it rather than taking down the run — but the digest will suddenly come back empty, and that's the signal to run `tests/test_parse.py`.
+
+---
+
+## Common commands
+
+```bash
+# Fetch and filter only — no spend, no email
 python -m radar.cli run --dry-run
-# 快速试跑，约 3 分钟
+# Quick trial run, about 3 minutes
 python -m radar.cli run --dry-run --max-details 20
-# 不抓新的，只对库里已有数据打分
+# Don't fetch anything new; just score what's already in the database
 python -m radar.cli run --skip-fetch
-# 打分并写 reports/，但不发邮件
+# Score and write to reports/, but don't send mail
 python -m radar.cli run --no-mail
-# 详细日志
+# Verbose logging
 python -m radar.cli run -v
-# 库里有多少数据
+# What's in the database
 python -m radar.cli stats
 sqlite3 jobs.db "select title, drop_reason from jobs where stage='filtered' limit 20;"
 ```
 
-最后一条很有用：**定期看一眼被丢掉的岗位**，确认德语门槛没有误杀。
+That last one earns its keep: **look through the dropped postings periodically** to confirm the language gate isn't over-filtering.
 
-## 环境要求
+---
 
-Python 3.9 以上都能跑（macOS 自带的 3.9 可以，只是会有一条 `NotOpenSSLWarning`
-的无害警告）。想消掉警告就装个新版：`brew install python@3.12`，然后重新建 venv。
+## Requirements
 
-依赖里的 `openai` 这个包不是用来调 OpenAI 的 —— DeepSeek 的接口是 OpenAI 兼容
-格式，官方推荐就用这个 SDK，只是把 `base_url` 指到 `api.deepseek.com`。
-全流程只有 `radar/score.py` 一个文件会联网调模型。
+Python 3.9 or newer (the macOS system 3.9 works — it just emits a harmless `NotOpenSSLWarning`). To silence it, install a newer build: `brew install python@3.12`, then recreate the venv.
+
+The `openai` package in the dependency list is not there to call OpenAI. DeepSeek's API is OpenAI-compatible and that SDK is the officially recommended client; `base_url` simply points at `api.deepseek.com`. `radar/score.py` is the only file in the project that makes a network call to a model.
+
+---
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). For personal, non-commercial use. Respect the terms of whatever sources you configure.

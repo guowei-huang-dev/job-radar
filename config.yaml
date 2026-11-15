@@ -1,12 +1,12 @@
 # ============================================================
-# job-radar 配置
-# 改这里就能调整搜索范围和过滤严格程度，不用动代码
+# job-radar configuration
+# Tune the search scope and filter strictness here — no code changes needed
 # ============================================================
 
 sources:
   linkedin:
     enabled: true
-    # 每组 keywords 会单独搜一次。关键词越少越准，别堆太多。
+    # Each keywords group is searched separately. Fewer keywords are more precise — don't pile them on.
     searches:
       - keywords: "Werkstudent AI"
       - keywords: "Working Student AI"
@@ -18,23 +18,23 @@ sources:
       - keywords: "Working Student Software Engineer"
       - keywords: "Intern LLM"
     location: "Berlin, Germany"
-    # 时间窗：r + 秒数，想要几天就填几天的秒数
-    #   r86400  = 过去 1 天
-    #   r259200 = 过去 3 天
-    #   r604800 = 过去 7 天（样本量最大，第一次跑或想看岗位密度时用）
+    # Time window: r + seconds. Use the second count for however many days you want.
+    #   r86400  = last 1 day
+    #   r259200 = last 3 days
+    #   r604800 = last 7 days (largest sample — use on a first run, or to gauge posting density)
     time_filter: "r259200"
-    max_pages: 4            # 每组关键词最多翻几页（每页 25 条）
-    request_delay: [3, 6]   # 每次请求之间随机 sleep 秒数区间，别调低
+    max_pages: 4            # Max pages per keyword group (25 postings per page)
+    request_delay: [3, 6]   # Random sleep range in seconds between requests — do not lower
     max_retries: 3
 
   arbeitnow:
-    # 完全合规的公开 JSON API，作为 LinkedIn 的补充源
+    # Fully sanctioned public JSON API, used as a supplement to LinkedIn
     enabled: true
     pages: 3
     keywords: ["werkstudent", "working student", "intern", "praktikum"]
 
 filters:
-  # 标题必须命中其一（大小写不敏感）。留空表示不限制。
+  # The title must contain at least one of these (case-insensitive). Leave empty for no restriction.
   title_must_include:
     - werkstudent
     - working student
@@ -46,7 +46,7 @@ filters:
     - entry level
     - junior
 
-  # 标题命中任一即丢弃
+  # Drop the posting if the title contains any of these
   title_exclude:
     - sales
     - vertrieb
@@ -66,43 +66,47 @@ filters:
     - grafik
     - pflege
 
-  # 地点必须命中其一。留空表示不限制。
+  # The location must contain at least one of these. Leave empty for no restriction.
   location_must_include:
     - berlin
     - remote
     - deutschland
     - germany
 
-  # true  = 规则只打标签，所有岗位一律抓 JD 并打分 —— 不会漏，但要多花时间和 token
-  # false = 规则命中直接丢弃，不抓 JD 不打分 —— 省钱省时间
+  # true  = rules only tag; every posting still gets its description fetched and scored
+  #         — nothing slips through, but it costs more time and tokens
+  # false = a rule hit drops the posting immediately, with no fetch and no scoring
+  #         — cheaper and faster
   score_everything: true
 
   german:
-    # 下面这条只在 score_everything: false 时生效
-    # required  → 明确要求德语，直接丢弃
-    # optional  → 德语只是加分项，保留
-    # unclear   → 提到德语但判断不清，保留并交给模型复核
+    # The setting below only takes effect when score_everything is false
+    # required  → German is explicitly required, drop it
+    # optional  → German is only a nice-to-have, keep it
+    # unclear   → German is mentioned but the verdict is ambiguous; keep it and let the model re-check
     drop_when_required: true
-    # 整篇 JD 是德语写的时候怎么处理：keep / flag / drop
-    # flag = 保留但在日报里标注（推荐，德语 JD 不等于要求德语）
+    # What to do when the whole description is written in German: keep / flag / drop
+    # flag = keep it but mark it in the digest (recommended — a German-language JD
+    #        is not the same thing as a German-language requirement)
     german_jd_action: flag
 
 scoring:
-  # deepseek-flash  = DeepSeek-V4.1-Flash，便宜、够用，默认选它
-  # deepseek-v4-pro = 更强但贵约 4 倍，觉得打分不够准再换
+  # deepseek-flash  = DeepSeek-V4.1-Flash. Cheap, good enough, the default choice.
+  # deepseek-v4-pro = Stronger but about 4x the price. Switch if the scoring feels imprecise.
   model: "deepseek-flash"
-  # DeepSeek 官方对"数据分析"类任务推荐 1.0；想让分数更稳定可以调到 0.3
+  # DeepSeek officially recommends 1.0 for "data analysis" style tasks;
+  # drop to 0.3 if you want more stable scores
   temperature: 1.0
-  # 低于这个分数不进日报
+  # Postings below this score stay out of the digest
   min_score_to_report: 55
-  # 单次运行最多打分多少个岗位（成本闸门，超出的留到下次跑）
-  # score_everything: true 时要放大，否则每天都有一堆岗位积压着打不完
+  # Max postings scored in a single run (cost gate — the overflow waits for the next run).
+  # Raise this when score_everything is true, otherwise a backlog builds up faster than it clears.
   max_jobs_per_run: 400
 
 report:
-  title: "每日岗位雷达"
+  title: "Daily Job Radar"
   timezone: "Europe/Berlin"
-  # 日报里最多列多少条
+  # Max entries listed in the digest
   max_items: 25
-  # 即使一条都没有也发邮件（false = 无结果就不发）
+  # Send the email even when there are no results (false = send nothing when empty)
   send_when_empty: false
