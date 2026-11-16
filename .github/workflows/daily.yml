@@ -1,9 +1,10 @@
 name: daily job radar
-
+# Scheduled runs are disabled on purpose.
+# GitHub Actions egress IPs sit in Azure datacenter ranges, which LinkedIn
+# throttles far more aggressively than residential connections — a scheduled
+# run took 43 minutes and returned nothing. See "Option 2: GitHub Actions"
+# in the README. Kept here as a manual-trigger path for when the laptop is away.
 on:
-  schedule:
-    # 05:00 UTC = 柏林夏令时 07:00 / 冬令时 06:00，工作日
-    - cron: "0 5 * * 1-5"
   workflow_dispatch:          # 也可以在 Actions 页面手动点一次
 
 permissions:
