@@ -1,14 +1,17 @@
 name: daily job radar
+
 # Scheduled runs are disabled on purpose.
 # GitHub Actions egress IPs sit in Azure datacenter ranges, which LinkedIn
 # throttles far more aggressively than residential connections — a scheduled
 # run took 43 minutes and returned nothing. See "Option 2: GitHub Actions"
 # in the README. Kept here as a manual-trigger path for when the laptop is away.
+#
+# Note that results are not persisted back to the repository: jobs.db and
+# reports/ are gitignored, so a run on a public repo can only deliver the
+# email digest. Persisting state requires a private repo and an explicit
+# commit step.
 on:
-  workflow_dispatch:          # 也可以在 Actions 页面手动点一次
-
-permissions:
-  contents: write             # 需要把 jobs.db 和 reports/ 写回仓库
+  workflow_dispatch:          # manual trigger from the Actions tab
 
 jobs:
   radar:
@@ -33,11 +36,3 @@ jobs:
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python -m radar.cli run
-
-      - name: Persist database and reports
-        run: |
-          git config user.name  "job-radar"
-          git config user.email "actions@github.com"
-          git add jobs.db reports/ || true
-          git diff --staged --quiet || git commit -m "radar: $(date -u +%Y-%m-%d)"
-          git push
