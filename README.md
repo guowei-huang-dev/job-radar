@@ -382,6 +382,8 @@ This requires pushing the project as a **private repository** (it holds your job
 
 For Gmail, `SMTP_PASS` must be an **app-specific password** (the 16-character one generated after enabling two-factor auth), not your account password.
 
+Measured in practice: a scheduled run from GitHub Actions ran for 43 minutes and returned nothing. The `schedule` trigger is disabled in `daily.yml` for this reason; `workflow_dispatch` is kept for manual runs.
+
 ---
 
 ## Gotchas
